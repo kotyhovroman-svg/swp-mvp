@@ -9,6 +9,82 @@ SUPABASE_KEY = "sb_publishable_qEMDfDfxGHyPXmgwlmMjAA_jSj6ZtT-"
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
+# --- 2. ФУНКЦИИ АВТОРИЗАЦИИ (Именно их Питон не мог найти) ---
+def login_user(email, password):
+    try:
+        response = supabase.auth.sign_in_with_password({"email": email, "password": password})
+        return response.user, None
+    except Exception as e:
+        return None, str(e)
+
+
+def logout_user():
+    supabase.auth.sign_out()
+
+
+# --- 3. ФУНКЦИИ ПОЛУЧЕНИЯ ДАННЫХ ---
+@st.cache_data
+def get_companies():
+    response = supabase.table("companies").select("*").execute()
+    return response.data
+
+
+@st.cache_data
+def get_company_data(company_id):
+    coeffs = supabase.table("profession_coefficients").select("*").eq("company_id", company_id).execute()
+    finances = supabase.table("financial_rates").select("*").eq("company_id", company_id).execute()
+    return coeffs.data[0], finances.data[0]
+
+
+# --- 4. НАСТРОЙКА СТРАНИЦЫ ---
+st.set_page_config(page_title="SWP: Работодатель", page_icon="🏭", layout="wide")
+st.title("Система стратегического планирования кадров (MVP)")
+
+# --- 5. ЛОГИКА АВТОРИЗАЦИИ НА ЭКРАНЕ ---
+if "user" not in st.session_state:
+    st.session_state.user = None
+
+if st.session_state.user is None:
+    st.subheader("🔑 Вход в систему SWP")
+    with st.form("login_form"):
+        email = st.text_input("Email")
+        password = st.text_input("Пароль", type="password")
+        submit = st.form_submit_button("Войти")
+
+        if submit:
+            user, error = login_user(email, password)
+            if user:
+                st.session_state.user = user
+                st.success("Успешный вход!")
+                st.rerun()  # Перезагружаем страницу
+            else:
+                st.error(f"Ошибка входа: {error}")
+
+    # ОСТАНАВЛИВАЕМ ВЫПОЛНЕНИЕ КОДА ЗДЕСЬ, ЕСЛИ НЕ АВТОРИЗОВАН
+    st.stop()
+
+# =====================================================================
+# ВЕСЬ КОД НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ ПОЛЬЗОВАТЕЛЬ УСПЕШНО ВОШЕЛ
+# =====================================================================
+
+# --- 6. БОКОВАЯ ПАНЕЛЬ И ВЫБОР ДАННЫХ ---
+st.sidebar.success(f"Вы вошли как: **{st.session_state.user.email}**")
+if st.sidebar.button("Выйти"):
+    logout_user()
+    st.session_state.user = None
+    st.rerun()
+
+st.sidebar.header("Настройки модели")
+
+# Дальше идет твой код с companies = get_companies(), ползунками и вкладками (tab1, tab2...)
+# ...
+
+# --- 1. НАСТРОЙКА БАЗЫ ДАННЫХ ---
+SUPABASE_URL = "https://idowlywjfzqoishuvtdf.supabase.co"
+SUPABASE_KEY = "sb_publishable_qEMDfDfxGHyPXmgwlmMjAA_jSj6ZtT-"
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+
 @st.cache_data  # Кэшируем, чтобы не дергать базу при каждом движении ползунка
 def get_companies():
     response = supabase.table("companies").select("*").execute()
@@ -109,45 +185,71 @@ import plotly.express as px
 # ... (твой предыдущий код до tab3) ...
 
 # Алгоритм 4: Формирование кадрового потенциала (Воронка)
+# Алгоритм 4: Формирование кадрового потенциала (Многолетняя воронка)
 with tab3:
-    st.subheader("Обратная образовательная воронка")
+    st.subheader("Динамика образовательной воронки")
 
     if net_loss > 0:
         st.write(
-            "Для получения нужного числа специалистов через 5 лет, рассчитаем стартовый набор школьников с учетом потерь на всех этапах обучения.")
+            f"Расчет потока школьников на горизонт **{horizon} лет** с учетом ежегодного роста эффективности профориентации.")
 
-        # Даем пользователю возможность поиграть с эффективностью (по умолчанию берем из БД)
-        base_eff_percent = int(coeffs['base_efficiency'] * 100)
-        current_efficiency = st.slider("Эффективность профориентации (%)", min_value=5, max_value=80,
-                                       value=base_eff_percent) / 100.0
-
-        # Коэффициенты потерь из базы
+        # Получаем базовые параметры из БД
+        base_eff = coeffs['base_efficiency']
+        eff_growth = coeffs['efficiency_growth']
         k1 = coeffs['k1_enrollment']
         k2 = coeffs['k2_graduation']
         k3 = coeffs['k3_employment']
 
-        # Математика: Общая конверсия воронки
-        total_conversion = current_efficiency * k1 * k2 * k3
+        # Считаем данные по годам (от 1 до horizon)
+        funnel_data = []
+        total_students_horizon = 0  # Сюда будем плюсовать всех детей за все годы
 
-        # Обратный расчет: сколько нужно на входе, чтобы получить net_loss на выходе
-        required_students = int(net_loss / total_conversion) + 1
+        for year in range(1, horizon + 1):
+            # Эффективность растет каждый год (Например: 20% -> 23% -> 26%)
+            current_eff = base_eff + (year - 1) * eff_growth
+            if current_eff > 1.0: current_eff = 1.0  # Защита от превышения 100%
 
-        st.info(f"🎯 Для закрытия дефицита в **{net_loss}** чел. требуется набрать **{required_students}** школьников.")
+            total_conversion = current_eff * k1 * k2 * k3
+            required_intake = int(net_loss / total_conversion) + 1
 
-        # Считаем ступени воронки для графика
-        val_1 = required_students
-        val_2 = int(val_1 * current_efficiency)
-        val_3 = int(val_2 * k1)
-        val_4 = int(val_3 * k2)
-        val_5 = int(val_4 * k3)
+            total_students_horizon += required_intake  # Накапливаем общий поток
 
-        # Отрисовка интерактивной воронки Plotly
-        stages = ["Набор (Школьники)", "Выбрали профессию", "Поступили на обучение", "Завершили обучение",
-                  "Трудоустроились на завод"]
-        values = [val_1, val_2, val_3, val_4, val_5]
+            funnel_data.append({
+                "Год программы": f"Год {year}",
+                "Эффективность": f"{int(current_eff * 100)}%",
+                "Необходимый набор (чел)": required_intake
+            })
 
-        fig = px.funnel(x=values, y=stages)
-        st.plotly_chart(fig, use_container_width=True)
+        df_funnel = pd.DataFrame(funnel_data)
+
+        col_f1, col_f2 = st.columns([1, 1])
+
+        with col_f1:
+            st.write("**Снижение потребности в наборе** (за счет роста эффективности)")
+            # График: как падает потребность в наборе детей с годами
+            fig_bar = px.bar(df_funnel, x="Год программы", y="Необходимый набор (чел)", text="Необходимый набор (чел)")
+            st.plotly_chart(fig_bar, use_container_width=True)
+
+        with col_f2:
+            st.write("**Воронка 1-го года (Детально)**")
+            # Отрисуем красивую воронку конкретно для стартового года
+            first_year_intake = df_funnel.iloc[0]["Необходимый набор (чел)"]
+            val_1 = first_year_intake
+            val_2 = int(val_1 * base_eff)
+            val_3 = int(val_2 * k1)
+            val_4 = int(val_3 * k2)
+            val_5 = int(val_4 * k3)
+
+            stages = ["Набор (Школьники)", "Выбрали профессию", "Поступили на обучение", "Завершили обучение",
+                      "Трудоустроились"]
+            values = [val_1, val_2, val_3, val_4, val_5]
+
+            fig_funnel = px.funnel(x=values, y=stages)
+            st.plotly_chart(fig_funnel, use_container_width=True)
+
+        # Выводим таблицу с расчетами
+        st.dataframe(df_funnel.set_index("Год программы"), use_container_width=True)
+
     else:
         st.success("Кадрового дефицита нет, набор не требуется.")
 
@@ -159,31 +261,36 @@ with tab4:
         cost_per_student = finances['cost_per_child']
         market_cost = finances['market_recruitment_cost']
 
-        # Считаем бюджеты
-        total_program_cost = required_students * cost_per_student
-        market_alternative_cost = net_loss * market_cost
+        # Считаем бюджеты НА ВЕСЬ ГОРИЗОНТ
+        total_program_cost = total_students_horizon * cost_per_student
+
+        # Альтернатива: сколько бы стоило нанять этих людей с рынка за тот же горизонт
+        total_needed_over_horizon = net_loss * horizon
+        market_alternative_cost = total_needed_over_horizon * market_cost
+
+        st.info(f"Смета рассчитана накопительным итогом на весь горизонт планирования: **{horizon} лет**")
 
         col1, col2 = st.columns(2)
-        col1.metric("Стоимость программы (инвестиции)", f"{total_program_cost:,.0f} ₽".replace(',', ' '))
-        col2.metric("Схантить готовых с рынка", f"{market_alternative_cost:,.0f} ₽".replace(',', ' '))
+        col1.metric(f"Бюджет программы (за {horizon} лет)", f"{total_program_cost:,.0f} ₽".replace(',', ' '))
+        col2.metric(f"Схантить {total_needed_over_horizon} готовых с рынка",
+                    f"{market_alternative_cost:,.0f} ₽".replace(',', ' '))
 
-        # Тот самый "крючок" для инвестора - расчет экономии
         if total_program_cost < market_alternative_cost:
             st.success(
-                f"Выгода предприятия (ROI) составит: **{(market_alternative_cost - total_program_cost):,.0f} ₽**".replace(
+                f"Выгода предприятия (ROI) за {horizon} лет составит: **{(market_alternative_cost - total_program_cost):,.0f} ₽**".replace(
                     ',', ' '))
 
         st.divider()
         st.subheader("📄 Итоговый социальный заказ")
 
-        # Формируем итоговый текстовый документ
         st.code(f"""
 ЗАКАЗЧИК: {current_company['name']}
 ПРОФЕССИЯ: {coeffs['profession_name']}
 
-ЦЕЛЕВОЙ РЕЗУЛЬТАТ: {net_loss} специалистов ежегодно
+ГОРИЗОНТ ПРОГРАММЫ: {horizon} лет
+ЦЕЛЕВОЙ РЕЗУЛЬТАТ: {total_needed_over_horizon} специалистов за период (по {net_loss} ежегодно)
 СРОК ПОДГОТОВКИ: {coeffs['training_years']} лет
 
-НЕОБХОДИМЫЙ НАБОР: {required_students} участников (школьников)
-БЮДЖЕТ ПРОГРАММЫ: {total_program_cost:,.0f} руб.
+ОБЩИЙ НАБОР (СУММАРНО): {total_students_horizon} участников (школьников)
+ИТОГОВЫЙ БЮДЖЕТ: {total_program_cost:,.0f} руб.
         """, language="text")
