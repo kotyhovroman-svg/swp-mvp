@@ -38,27 +38,38 @@ def get_company_data(company_id):
 
 # --- 4. НАСТРОЙКА СТРАНИЦЫ ---
 st.set_page_config(page_title="SWP: Работодатель", page_icon="🏭", layout="wide")
-st.title("Система стратегического планирования кадров (MVP)")
 
 # --- 5. ЛОГИКА АВТОРИЗАЦИИ НА ЭКРАНЕ ---
 if "user" not in st.session_state:
     st.session_state.user = None
 
 if st.session_state.user is None:
-    st.subheader("🔑 Вход в систему SWP")
-    with st.form("login_form"):
-        email = st.text_input("Email")
-        password = st.text_input("Пароль", type="password")
-        submit = st.form_submit_button("Войти")
+    # ТРЮК С КОЛОНКАМИ: создаем 3 колонки.
+    # Цифры [1, 1, 1] означают пропорции. Они будут одинаковой ширины.
+    # Если захочешь сделать форму чуть шире, напиши [1, 2, 1]
+    col1, col2, col3 = st.columns([1, 1, 1])
 
-        if submit:
-            user, error = login_user(email, password)
-            if user:
-                st.session_state.user = user
-                st.success("Успешный вход!")
-                st.rerun()  # Перезагружаем страницу
-            else:
-                st.error(f"Ошибка входа: {error}")
+    with col2:  # Помещаем наш интерфейс строго в центральную колонку
+        # Используем HTML, чтобы отцентрировать сам заголовок
+        st.markdown("<h3 style='text-align: center;'>🔑 Вход в систему SWP</h3>", unsafe_allow_html=True)
+        st.write("")  # Добавляем пустую строку для воздуха
+
+        with st.form("login_form"):
+            # Добавили placeholder, чтобы внутри полей были серые подсказки
+            email = st.text_input("Email")
+            password = st.text_input("Пароль", type="password")
+
+            # use_container_width=True растянет кнопку логина красиво на всю ширину нашей узкой колонки
+            submit = st.form_submit_button("Войти", use_container_width=True)
+
+            if submit:
+                user, error = login_user(email, password)
+                if user:
+                    st.session_state.user = user
+                    st.success("Успешный вход!")
+                    st.rerun()
+                else:
+                    st.error(f"Ошибка входа: {error}")
 
     # ОСТАНАВЛИВАЕМ ВЫПОЛНЕНИЕ КОДА ЗДЕСЬ, ЕСЛИ НЕ АВТОРИЗОВАН
     st.stop()
@@ -66,6 +77,8 @@ if st.session_state.user is None:
 # =====================================================================
 # ВЕСЬ КОД НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ ПОЛЬЗОВАТЕЛЬ УСПЕШНО ВОШЕЛ
 # =====================================================================
+
+st.title("Система стратегического планирования кадров (MVP)")
 
 # --- 6. БОКОВАЯ ПАНЕЛЬ И ВЫБОР ДАННЫХ ---
 st.sidebar.success(f"Вы вошли как: **{st.session_state.user.email}**")
@@ -98,12 +111,6 @@ def get_company_data(company_id):
     return coeffs.data[0], finances.data[0]
 
 
-# --- 2. НАСТРОЙКА СТРАНИЦЫ ---
-st.set_page_config(page_title="SWP: Работодатель", page_icon="🏭", layout="wide")
-st.title("Система стратегического планирования кадров (MVP)")
-
-# --- 3. БОКОВАЯ ПАНЕЛЬ (ВВОД ДАННЫХ) ---
-st.sidebar.header("Настройки модели")
 
 companies = get_companies()
 if companies:
