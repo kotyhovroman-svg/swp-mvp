@@ -3,3 +3,4 @@ Plaintext
 streamlit
 supabase
 pandas
+plotly
